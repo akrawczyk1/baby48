@@ -57,7 +57,7 @@ Dependencies point one way: `isa` <- `machine`, `assembler`, `format` <- `cli`.
 | 4 | SUB S | A <- A - store[S] |
 | 5 | SUB S | same as 4 |
 | 6 | CMP | if A < 0, skip next instruction |
-| 7 | STP | halt |
+| 7 | STOP | halt |
 
 ## Fidelity decisions
 
@@ -72,7 +72,9 @@ Dependencies point one way: `isa` <- `machine`, `assembler`, `format` <- `cli`.
 
 - One statement per line: `<line>: <MNEMONIC> [operand]`, e.g. `1: LDN 18`
 - Data: `<line>: NUM <value>` (signed 32-bit)
-- `CMP` / `STP` accept and ignore an operand (historical listings write `CMP 0`)
+- `CMP` / `STOP` accept and ignore an operand (historical listings write `CMP 0`)
+- `STOP` opcode defined as four letter version for easier eyeballing of program halt location
+- `STP` accepted as historical spelling of STOP
 - Errors, each reported with its source line number: unknown mnemonic; missing
   or extra operand; operand or line number outside 0-31; duplicate line
   numbers; NUM value outside 32-bit range
@@ -97,7 +99,7 @@ and CI rows in the same style. Example:
   21 June 1948 version), listed below. The answer ends up in line 20 as
   (answer - 1), because b is decremented before the remainder test.
   - a = 989 (23 x 43): line 20 = 42, exactly 21,387 instructions executed
-    counting STP (cross-checked against Mark Stevens's emulator)
+    counting STOP (cross-checked against Mark Stevens's emulator)
   - a = 3141 (3 x 1047): line 20 = 1046 (from the 1948 operating notes)
   - a = 4537 (13 x 349): line 20 = 348 (from the 1948 operating notes)
   - a = 2^18: line 20 = 131071, 2,228,228 instructions (computed by hand,
@@ -125,7 +127,7 @@ line 20 = a - 1, line 22 = -(a - 1).
 14: CMP
 15: JMP 25      ; r == 0 -> line 17
 16: JMP 18      ; r > 0  -> line 1
-17: STP
+17: STOP
 18: NUM 0
 19: NUM -989
 20: NUM 988

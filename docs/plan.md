@@ -81,7 +81,7 @@ Known issue: on some recent WSL kernels, ASan binaries loop printing
   so that code can write `#include "isa/isa.hpp"`.
 - `src/isa/isa.hpp`, in `namespace baby48::isa`, with everything `constexpr`:
   - `enum class Opcode : std::uint8_t`: JMP=0, JRP=1, LDN=2, STO=3, SUB=4,
-    CMP=6, STP=7. Function 5 has no enumerator.
+    CMP=6, STOP=7. Function 5 has no enumerator.
   - Constants: store size 32, line mask `0x1F`, function shift 13, function
     mask `0x7`. A `std::array` listing every opcode, for iterating in tests.
   - `struct Instruction { Opcode op; std::uint8_t line; }` with a defaulted
@@ -94,7 +94,7 @@ Known issue: on some recent WSL kernels, ASan binaries loop printing
   - `mnemonic(Opcode) -> std::string_view`.
   - `opcode_from_mnemonic(std::string_view) -> std::optional<Opcode>`. Open
     decision: whether matching is case-sensitive.
-  - `uses_operand(Opcode) -> bool`, false for CMP and STP.
+  - `uses_operand(Opcode) -> bool`, false for CMP and STOP.
 - Pitfalls:
   - Under `-Wconversion`, the `uint32_t -> uint8_t` narrowing in `decode` needs
     an explicit `static_cast`.
@@ -143,7 +143,7 @@ Test cases:
 - `mnemonic` and `opcode_from_mnemonic` round-trip. Unknown text (`"NUM"`, `""`,
   and lowercase text if matching is case-sensitive) gives `nullopt`.
 - `uses_operand` is true for the five memory operations and false for CMP and
-  STP.
+  STOP.
 
 Specialising `Catch::StringMaker<Instruction>` in the test file makes failures
 print as `LDN 18` rather than `{?}`.
