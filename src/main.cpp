@@ -2,8 +2,8 @@
 #include <array>
 #include <iostream>
 #include <expected>
-#include <cstdint>
-#include <limits>
+
+#include "isa/isa.hpp"
 
 int main(){
     std::cout << "Hello, world!" << std::endl;

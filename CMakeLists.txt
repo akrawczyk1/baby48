@@ -11,12 +11,9 @@ add_library(baby48_options INTERFACE)
 target_compile_options(baby48_options INTERFACE -Wall -Wextra -Wpedantic -Wconversion)
 target_compile_definitions(baby48_options INTERFACE $<$<CONFIG:Debug>:_GLIBCXX_ASSERTIONS>)
 
-
 if(BABY48_SANITIZE)
     target_compile_options(baby48_options INTERFACE -fsanitize=address,undefined -fno-omit-frame-pointer)
     target_link_options(baby48_options INTERFACE -fsanitize=address,undefined)
 endif()
 
-add_executable(hello src/main.cpp)
-
-target_link_libraries(hello PRIVATE baby48_options)
+add_subdirectory(src)
