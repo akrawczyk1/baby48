@@ -22,5 +22,10 @@ int main(){
         }
     }
 
+    std::cout << std::endl;
+
+    static_assert(baby48::isa::encode(baby48::isa::Opcode::LDN, 18) == 16402);
+    static_assert(baby48::isa::decode(baby48::isa::encode(baby48::isa::Opcode::LDN, 18)) == baby48::isa::Instruction{baby48::isa::Opcode::LDN, 18});
+
     return 0;
 }

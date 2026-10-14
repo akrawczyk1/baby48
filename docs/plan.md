@@ -92,9 +92,8 @@ Known issue: on some recent WSL kernels, ASan binaries loop printing
   - `decode(std::uint32_t) -> Instruction`. F=5 maps to SUB, and all bits
     outside S and F are ignored.
   - `mnemonic(Opcode) -> std::string_view`.
-  - `opcode_from_mnemonic(std::string_view) -> std::optional<Opcode>`. Open
-    decision: whether matching is case-sensitive.
-  - `uses_operand(Opcode) -> bool`, false for CMP and STOP.
+  - `opcodeFromMnemonic(std::string_view) -> std::optional<Opcode>`. Matching is case-insensitive.
+  - `usesOperand(Opcode) -> bool`, false for CMP and STOP.
 - Pitfalls:
   - Under `-Wconversion`, the `uint32_t -> uint8_t` narrowing in `decode` needs
     an explicit `static_cast`.
@@ -140,9 +139,9 @@ Test cases:
 - F=5 decodes as SUB.
 - ORing `0xFFFF1FE0` (every bit outside S and F) into an encoded word doesn't
   change the result of `decode`.
-- `mnemonic` and `opcode_from_mnemonic` round-trip. Unknown text (`"NUM"`, `""`,
-  and lowercase text if matching is case-sensitive) gives `nullopt`.
-- `uses_operand` is true for the five memory operations and false for CMP and
+- `mnemonic` and `opcodeFromMnemonic` round-trip. Unknown text (`"NUM"`, `""`, etc.) gives `nullopt`.
+- Matching is case-insensitive.
+- `usesOperand` is true for the five memory operations and false for CMP and
   STOP.
 
 Specialising `Catch::StringMaker<Instruction>` in the test file makes failures

@@ -75,6 +75,7 @@ Dependencies point one way: `isa` <- `machine`, `assembler`, `format` <- `cli`.
 - `CMP` / `STOP` accept and ignore an operand (historical listings write `CMP 0`)
 - `STOP` opcode defined as four letter version for easier eyeballing of program halt location
 - `STP` accepted as historical spelling of STOP
+- Opcode matching is case-insensitive
 - Errors, each reported with its source line number: unknown mnemonic; missing
   or extra operand; operand or line number outside 0-31; duplicate line
   numbers; NUM value outside 32-bit range
@@ -143,6 +144,9 @@ line 20 = a - 1, line 22 = -(a - 1).
 ## Toolchain
 
 - GCC 13 under WSL (Ubuntu 24.04), CMake >= 3.25, C++23 (no GNU extensions).
+- C++ names:
+    - camelCase for functions, variables
+    - PascalCase for types
 - Tests: Catch2 v3 via FetchContent, registered with CTest.
 - Warnings: `-Wall -Wextra -Wpedantic -Wconversion`, applied through an
   INTERFACE target so they don't reach third-party code.
