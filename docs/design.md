@@ -151,6 +151,7 @@ line 20 = a - 1, line 22 = -(a - 1).
 - Warnings: `-Wall -Wextra -Wpedantic -Wconversion`, applied through an
   INTERFACE target so they don't reach third-party code.
 - Sanitizers: ASan + UBSan, behind the `BABY48_SANITIZE` option (default ON).
+- Debug builds define `_GLIBCXX_ASSERTIONS` (bounds-checked standard containers)
 - Configure, build, test:
 
 ```
