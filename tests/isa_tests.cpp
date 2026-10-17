@@ -10,7 +10,7 @@ namespace isa = baby48::isa;
 template <>
 struct Catch::StringMaker<isa::Instruction> {
     static std::string convert(const isa::Instruction& i) {
-        return std::string(isa::mnemonic(i.op)) + " " + std::to_string(i.line);
+        return std::string(isa::mnemonic(i.op)) + " " + std::to_string(i.lineOperand);
     }
 };
 
