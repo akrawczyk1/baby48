@@ -28,8 +28,8 @@ namespace baby48::isa{
         STOP = 7    //  Stop    |   Light "Stop" neon and halt the machine
     };
 
-    inline constexpr std::size_t storeSize = 32;
     inline constexpr std::uint32_t lineMask = 0x1F;
+    inline constexpr std::uint32_t lineCount = lineMask + 1;
     inline constexpr std::uint32_t functionShift = 13;
     inline constexpr std::uint32_t functionMask = 0x7;
 
@@ -46,12 +46,12 @@ namespace baby48::isa{
     struct Instruction{
         Opcode op;
         std::uint8_t line;
-        
+
         bool operator==(const Instruction&) const = default;
     };
 
     constexpr std::uint32_t encode(Opcode op, std::uint8_t line){
-        assert(line < storeSize);
+        assert(line < lineCount);
 
         std::uint32_t lineBits = static_cast<std::uint32_t>(line);
 
@@ -102,7 +102,7 @@ namespace baby48::isa{
     }
 
     constexpr std::optional<Opcode> opcodeFromMnemonic(std::string_view m){
-        
+
         std::string mUpper;
         mUpper.resize(m.size());
         std::transform(m.begin(), m.end(), mUpper.begin(), detail::toUpperChar);
