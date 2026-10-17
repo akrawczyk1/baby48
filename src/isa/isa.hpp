@@ -4,7 +4,6 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
-#include <cstddef>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -45,15 +44,15 @@ namespace baby48::isa{
 
     struct Instruction{
         Opcode op;
-        std::uint8_t line;
+        std::uint8_t lineOperand;
 
         bool operator==(const Instruction&) const = default;
     };
 
-    constexpr std::uint32_t encode(Opcode op, std::uint8_t line){
-        assert(line < lineCount);
+    constexpr std::uint32_t encode(Opcode op, std::uint8_t lineOperand){
+        assert(lineOperand < lineCount);
 
-        std::uint32_t lineBits = static_cast<std::uint32_t>(line);
+        std::uint32_t lineBits = static_cast<std::uint32_t>(lineOperand);
 
         std::uint32_t opBits = static_cast<std::uint32_t>(op);
         opBits = opBits << functionShift;
@@ -65,9 +64,9 @@ namespace baby48::isa{
         std::uint8_t opBits = static_cast<std::uint8_t>((word >> functionShift) & functionMask);
         Opcode op = (opBits == 5) ? Opcode::SUB : static_cast<Opcode>(opBits);
 
-        std::uint8_t line = static_cast<std::uint8_t>(word & lineMask);
+        std::uint8_t lineOperand = static_cast<std::uint8_t>(word & lineMask);
 
-        return Instruction{op, line};
+        return Instruction{op, lineOperand};
     }
 
     constexpr std::string_view mnemonic(Opcode op){
