@@ -3,7 +3,6 @@
 #include <catch2/generators/catch_generators_range.hpp>
 
 #include "isa/isa.hpp"
-#include "memory/memory.hpp"
 
 namespace isa = baby48::isa;
 
