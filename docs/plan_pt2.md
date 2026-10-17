@@ -1,8 +1,9 @@
 # Milestone 2: `machine` module
 
 Implements the Baby's execution semantics: the store, the accumulator, CI, and
-`step()`. Introduces a compiled (non-header-only) library, a class with private
-state, and tests that run small hand-encoded programs. Ends with Kilburn's
+`step()`. Starts by moving the store's shape into its own `memory` module.
+Introduces a compiled (non-header-only) library, a class with private state,
+and tests that run small hand-encoded programs. Ends with Kilburn's
 highest-factor program running on hand-encoded memory images. Each step ends
 with a verification and leaves the build working.
 
@@ -11,15 +12,14 @@ with a verification and leaves the build working.
 
 ---
 
-## 1. Settle the open machine decisions
-**Objective:** resolve the behaviour that tests will depend on before writing
-code. Record each decision in `docs/design.md`.
+## 1. Machine decisions
+The behaviour that the tests depend on, settled before writing code and
+recorded in `docs/design.md`:
 
 - **`step()` on a stopped machine.** A halted machine returns `Halted` from
   `step()` and changes nothing: no CI increment, no instruction counted. A
   faulted machine likewise keeps returning `Fault`. Rationale: run loops can call
-  `step()` until it stops returning `Ok`, with no special cases. Replaces the
-  OPEN item under Fidelity decisions.
+  `step()` until it stops returning `Ok`, with no special cases.
 - **When a CI fault is detected.** Immediately after the CI increment, before
   the fetch. A step that faults executes nothing and is not counted. Rationale:
   - It catches both ways CI can gain bits 13-15: a jump, or incrementing past
@@ -29,22 +29,48 @@ code. Record each decision in `docs/design.md`.
     after execution would wrongly report that as a fault.
 - **Instruction count** includes the STOP instruction, matching the 21,387
   reference count.
-- **`MemoryImage` lives in `isa`.** Both `machine` and `assembler` use it, and
-  they must not depend on each other. `isa` is their shared base.
+- **The store's shape lives in its own `memory` module,** not in `isa`. Both
+  `machine` and `assembler` use `MemoryImage`, and they must not depend on each
+  other. `isa` describes instruction encoding only. Keeping memory separate
+  allows a future store whose size differs from the instruction format's
+  address range.
 - **Private data members** use camelCase with a trailing underscore (`store_`),
-  which frees the plain name for the accessor (`store()`). Add this to the C++
-  names list under Toolchain.
+  which frees the plain name for the accessor (`store()`).
 
 **Verify:** `design.md` has no OPEN item for `step()` on a halted machine, and
-the Fidelity decisions, Architecture and Toolchain sections reflect the above.
+its Architecture, Fidelity decisions and Toolchain sections reflect the above.
 
-## 2. `MemoryImage` in `isa`
-- In `isa.hpp`: `using MemoryImage = std::array<std::uint32_t, storeSize>;`
+## 2. The `memory` module: line count versus store size
+**Objective:** separate two values that coincide in the faithful Baby, and a
+second header-only library.
+
+- Two different facts are currently both expressed as `isa::storeSize`:
+  - **how many lines an instruction can address**, a property of the encoding
+    (the 5-bit S field gives 32);
+  - **how many words the store holds**, a property of memory.
+
+  They are equal in the faithful Baby but need not be in a variant, so each
+  gets its own constant in its own module.
+- `isa.hpp`: replace `storeSize` with `inline constexpr std::size_t lineCount =
+  lineMask + 1;`. `encode`'s precondition becomes `assert(line < lineCount)`.
+  Tests that loop over line numbers use `isa::lineCount`.
+- New `src/memory/memory.hpp`, in `namespace baby48::memory`:
+  - `inline constexpr std::size_t storeSize = 32;`
+  - `using MemoryImage = std::array<std::uint32_t, storeSize>;`
+  - It includes only standard headers. It does not depend on `isa`.
 - `using Name = Type;` is the modern spelling of `typedef`. It creates another
   name for the same type, not a new type.
+- `src/CMakeLists.txt`: `add_library(baby48_memory INTERFACE)` and
+  `target_include_directories(baby48_memory INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})`,
+  the same pattern as `baby48_isa`. Link `baby48_tests` to it.
 
-**Verify:** a test checks `isa::MemoryImage{}.size() == isa::storeSize`, and a
-default-constructed image is all zeros.
+**Verify:**
+- Tests, tagged `[memory]` and `[isa]`: `isa::lineCount == 32`,
+  `memory::MemoryImage{}.size() == memory::storeSize`, and a
+  default-constructed image is all zeros.
+- `memory.hpp` compiles when it is the only file included.
+- `isa.hpp` no longer mentions `storeSize`.
+- All existing tests still pass.
 
 ## 3. A compiled library, and splitting the tests
 **Objective:** the header/source split, `STATIC` libraries, and `PUBLIC` versus
@@ -58,11 +84,12 @@ default-constructed image is all zeros.
     library compiles its sources once into an archive (`libbaby48_machine.a`)
     that executables link.
   - `target_include_directories(baby48_machine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})`
-  - `target_link_libraries(baby48_machine PUBLIC baby48_isa PRIVATE baby48_options)`
+  - `target_link_libraries(baby48_machine PUBLIC baby48_isa baby48_memory PRIVATE baby48_options)`
 - `PUBLIC` versus `PRIVATE`:
   - `PUBLIC`: used by this target **and** passed on to anything that links it.
-    `machine.hpp` includes `isa/isa.hpp`, so every consumer of `machine` needs
-    `isa`'s include path. That makes `baby48_isa` `PUBLIC`.
+    `machine.hpp` includes `isa/isa.hpp` and `memory/memory.hpp`, so every
+    consumer of `machine` needs both include paths. That makes `baby48_isa` and
+    `baby48_memory` `PUBLIC`.
   - `PRIVATE`: used only to build this target. The warning flags apply to
     `machine.cpp`, but they are not forced on consumers.
   - Rule of thumb: a dependency that appears in the target's headers is
@@ -91,14 +118,19 @@ default member initializers, and `const` accessors.
 
 - `enum class StepResult { Ok, Halted, Fault };`
 - `class Machine`:
-  - `explicit Machine(const isa::MemoryImage& image);` copies the image into
+  - `explicit Machine(const memory::MemoryImage& image);` copies the image into
     the store. Registers start at zero.
   - `StepResult step();`
   - `const` accessors: `accumulator()`, `ci()` (both `std::uint32_t`),
-    `store()` (returns `const isa::MemoryImage&`), `status()` (the current
+    `store()` (returns `const memory::MemoryImage&`), `status()` (the current
     `StepResult`), `instructionCount()` (`std::uint64_t`).
   - Private members: `store_`, `accumulator_`, `ci_`, `status_`,
     `instructionCount_`.
+- `static_assert(memory::storeSize == isa::lineCount);` in `machine.hpp`. This
+  is where the two modules meet. The machine indexes the store with line numbers
+  (CI's low bits and each operand S), which is only safe when every addressable
+  line exists. A future variant that breaks this fails to compile here, rather
+  than reading past the end of the store at run time.
 - Concepts:
   - `class` rather than `struct`: the state is private, so it can only change
     through `step()`. Nothing outside the class can create an impossible state.
@@ -245,7 +277,6 @@ line 21 to -2, makes them fail.
   - add the instruction counts for a = 3141 and 4537;
   - update the 2^18 note: the count agrees with simulation, though not with an
     external emulator.
-- `design.md`, Architecture section: `MemoryImage` is defined in `isa`.
 - Optional: replace the scratch code in `src/main.cpp` with a small demo. Build
   Kilburn's image for a = 989, run it, and print line 20 and the instruction
   count. It is the first time the emulator runs a real program end to end. The
@@ -261,5 +292,5 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
-Expected: a clean build with no warnings, all `[isa]`, `[machine]` and
-`[kilburn]` tests passing, and no sanitizer reports.
+Expected: a clean build with no warnings, all `[isa]`, `[memory]`, `[machine]`
+and `[kilburn]` tests passing, and no sanitizer reports.

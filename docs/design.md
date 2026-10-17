@@ -20,16 +20,25 @@ See roadmap for post-v1 ideas.
 
 ## Architecture
 
-Dependencies point one way: `isa` <- `machine`, `assembler`, `format` <- `cli`.
+Dependencies point one way: `isa`, `memory` <- `machine`, `assembler`,
+`format` <- `cli`. `isa` and `memory` are independent of each other.
 
 - `isa`: the encoding spec, standing in for the hardware decoder. Opcode enum,
   bit-field masks, `encode`/`decode`, mnemonic table, whether an op uses its
-  operand. No execution semantics.
+  operand, and how many lines an instruction can address (`lineCount`, from the
+  5-bit S field). No execution semantics.
+- `memory`: the shape of the store: `storeSize` and `MemoryImage`
+  (`std::array<std::uint32_t, storeSize>`). No behaviour. Separate from `isa`
+  so that the store size can vary independently of the instruction format (see
+  Roadmap).
 - `machine`: machine state + `step()`, read-only accessors. All execution
-  semantics live here. No I/O. Constructed from a memory image with registers
-  reset. `step()` returns a status (ok / halted / fault).
-- `assembler`: source text -> `std::expected<MemoryImage, AsmError>`, where
-  `MemoryImage` is `std::array<std::uint32_t, 32>`. Knows nothing about Machine.
+  semantics live here. No I/O. Constructed from a `MemoryImage` with registers
+  reset. `step()` returns a status (ok / halted / fault). Combines `isa` and
+  `memory`: CI and operands select store lines by line number, so the faithful
+  machine requires `memory::storeSize == isa::lineCount`, checked at compile
+  time.
+- `assembler`: source text -> `std::expected<MemoryImage, AsmError>`. Knows
+  nothing about Machine.
 - `format`: pure functions, machine state -> string. Never prints.
 - `cli`: the only module that touches files, arguments, or stdout. Owns the run
   loop: until halted, until a breakpoint (check CI before each step), or until an
@@ -65,8 +74,15 @@ Dependencies point one way: `isa` <- `machine`, `assembler`, `format` <- `cli`.
   hardware's test flip-flop).
 - Function 5 decodes as SUB.
 - CI bits 13-15 becoming nonzero (which hung the real machine) is detected and
-  reported as a fault, not emulated.
-- OPEN: behavior of `step()` on an already-halted machine (no-op vs error).
+  reported as a fault, not emulated. The check happens immediately after the
+  CI increment, before the fetch. A faulting step executes nothing and is not
+  counted. Checking at this point catches both a jump and an increment past
+  `0x1FFF`, and allows a jump to line 0 through a stored -1 (`0xFFFFFFFF` wraps
+  to 0 on the increment).
+- `step()` on a halted machine returns halted again and changes nothing: no CI
+  increment, no instruction counted. A faulted machine likewise keeps returning
+  fault. Run loops call `step()` until it stops returning ok.
+- The instruction count includes the STOP instruction.
 
 ## Assembler syntax (v1)
 
@@ -147,6 +163,8 @@ line 20 = a - 1, line 22 = -(a - 1).
 - C++ names:
     - camelCase for functions, variables
     - PascalCase for types
+    - private data members: camelCase with a trailing underscore (`store_`),
+      leaving the plain name for the accessor (`store()`)
 - Tests: Catch2 v3 via FetchContent, registered with CTest.
 - Warnings: `-Wall -Wextra -Wpedantic -Wconversion`, applied through an
   INTERFACE target so they don't reach third-party code.
@@ -162,8 +180,8 @@ ctest --test-dir build --output-on-failure
 
 ## Build order
 
-isa -> machine (hand-encoded tests) -> assembler -> end-to-end Kilburn test ->
-format -> cli
+isa -> memory -> machine (hand-encoded tests) -> assembler -> end-to-end
+Kilburn test -> format -> cli
 
 ## Roadmap (post-v1; each a separate, scoped release)
 
@@ -174,6 +192,10 @@ format -> cli
   test oracle.
 - "Baby 3": memory-mapped input, one word per key, latched
   at 1 until the program stores 0 to acknowledge.
+- "Baby Unbounded": arbitrary store size, possibly selected at run time.
+  Requires a different `memory` module and also a wider instruction format (a
+  different `isa`), since the S field limits how many lines an instruction can
+  address.
 
 ## References
 
