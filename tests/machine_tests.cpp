@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <utility>
 
+#include "isa/isa.hpp"
 #include "machine/machine.hpp"
 #include "memory/memory.hpp"
 
@@ -166,7 +167,7 @@ TEST_CASE("0 - 1 = 0xFFFFFFFF"){
     CHECK(m.accumulator() == ALL_F);
 }
 
-TEST_CASE(" 10 - 3 = 7"){
+TEST_CASE("10 - 3 = 7"){
     memory::MemoryImage image = imageBuilder({
         {1, isa::encode(LDN, 8)},
         {2, isa::encode(SUB, 9)},
@@ -243,6 +244,137 @@ TEST_CASE("Opcode 5 is read as SUB"){
     REQUIRE(runHelper(m) == machine::StepResult::Halted);
     CHECK(m.accumulator() == ALL_F);
 
+}
+
+TEST_CASE("JMP to line 5 executes line 6, not line 5"){
+
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(JMP, 10)},
+        {2, isa::encode(STOP, 0)},
+        {5, isa::encode(STOP, 0)},
+        {6, isa::encode(STOP, 0)},
+        {7, isa::encode(STOP, 0)},
+
+        {10, 5}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.controlInstruction() == 6);
+}
+
+TEST_CASE("JMP -1 jumps to and executes line 0"){
+    memory::MemoryImage image = imageBuilder({
+        {0, isa::encode(STOP, 0)},
+        {1, isa::encode(JMP, 10)},
+        {2, isa::encode(STOP, 0)},
+
+        {10, toTwosComplement(-1)}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.controlInstruction() == 0);
+}
+
+TEST_CASE("JRP Forward by 2 -- [1] = JRP 20 | [4] = STOP | [20] = 2"){
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(JRP, 20)},
+        {3, isa::encode(STOP, 0)},
+        {4, isa::encode(STOP, 0)},
+        {5, isa::encode(STOP, 0)},
+
+        {20, 2}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.controlInstruction() == 4);
+}
+
+TEST_CASE("JRP Backward by 3 -- [1] = JMP 20 | [3] = STOP | [5] = JRP 25 | [20] = 4 | [25] = -3"){
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(JMP, 20)},
+        {2, isa::encode(STOP, 0)},
+        {3, isa::encode(STOP, 0)},
+        {4, isa::encode(STOP, 0)},
+        {5, isa::encode(JRP, 25)},
+        {20, 4},
+        {25, toTwosComplement(-3)}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.controlInstruction() == 3);
+}
+
+TEST_CASE("CMP A = -5 (skip)"){
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(LDN, 20)},
+        {2, isa::encode(CMP, 0)},
+        {3, isa::encode(STOP, 0)},
+        {4, isa::encode(STOP, 0)},
+
+        {20, 5}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.controlInstruction() == 4);
+}
+
+TEST_CASE("CMP A = 0 (don't skip)"){
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(LDN, 20)},
+        {2, isa::encode(CMP, 0)},
+        {3, isa::encode(STOP, 0)},
+        {4, isa::encode(STOP, 0)},
+
+        {20, 0}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.controlInstruction() == 3);
+}
+
+TEST_CASE("CMP A = 5 (don't skip)"){
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(LDN, 20)},
+        {2, isa::encode(CMP, 0)},
+        {3, isa::encode(STOP, 0)},
+        {4, isa::encode(STOP, 0)},
+
+        {20, toTwosComplement(-5)}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.controlInstruction() == 3);
+}
+
+TEST_CASE("CMP A = 0x80000000 (skip)"){
+    const std::uint32_t HEX_8E8 = 0x80000000;
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(LDN, 20)},
+        {2, isa::encode(CMP, 0)},
+        {3, isa::encode(STOP, 0)},
+        {4, isa::encode(STOP, 0)},
+
+        {20, HEX_8E8}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.controlInstruction() == 4);
 }
 
 
