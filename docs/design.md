@@ -78,7 +78,11 @@ Dependencies point one way: `isa`, `memory` <- `machine`, `assembler`,
   CI increment, before the fetch. A faulting step executes nothing and is not
   counted. Checking at this point catches both a jump and an increment past
   `0x1FFF`, and allows a jump to line 0 through a stored -1 (`0xFFFFFFFF` wraps
-  to 0 on the increment).
+  to 0 on the increment). The fetch is routed through the function decoder, so
+  nonzero bits 13-15 leave the instruction with no path into PI (Burton,
+  Appendix A1.4). One case did not hang: function bits of 1 added the fetched
+  word to the PI left over from the previous instruction. The emulator reports
+  this case as a fault too, rather than reproducing a corrupted instruction.
 - `step()` on a halted machine returns halted again and changes nothing: no CI
   increment, no instruction counted. A faulted machine likewise keeps returning
   fault. Run loops call `step()` until it stops returning ok.
