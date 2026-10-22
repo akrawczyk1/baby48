@@ -121,10 +121,16 @@ and CI rows in the same style. Example:
   (answer - 1), because b is decremented before the remainder test.
   - a = 989 (23 x 43): line 20 = 42, exactly 21,387 instructions executed
     counting STOP (cross-checked against Mark Stevens's emulator)
-  - a = 3141 (3 x 1047): line 20 = 1046 (from the 1948 operating notes)
-  - a = 4537 (13 x 349): line 20 = 348 (from the 1948 operating notes)
-  - a = 2^18: line 20 = 131071, 2,228,228 instructions (computed by hand,
-    not yet cross-checked)
+  - a = 3141 (3 x 1047): line 20 = 1046 (from the 1948 operating notes),
+    37,174 instructions
+  - a = 4537 (13 x 349): line 20 = 348 (from the 1948 operating notes),
+    88,333 instructions
+  - a = 2^18: line 20 = 131071, 2,228,228 instructions (computed by hand)
+  - The instruction counts for 3141, 4537 and 2^18 agree with an independent
+    simulation of this spec, but have not been checked against an external
+    emulator.
+  - All four cases pass in `tests/machine_tests.cpp`, running on hand-encoded
+    memory images.
 - Further fixtures: HASE's 18 July 1948 amended version and its
   every-instruction demo program.
 
@@ -169,7 +175,11 @@ line 20 = a - 1, line 22 = -(a - 1).
     - PascalCase for types
     - private data members: camelCase with a trailing underscore (`store_`),
       leaving the plain name for the accessor (`store()`)
-- Tests: Catch2 v3 via FetchContent, registered with CTest.
+- Tests: Catch2 v3 via FetchContent, registered with CTest. One test executable
+  per module (`baby48_isa_tests`, `baby48_memory_tests`,
+  `baby48_machine_tests`), each registered with its own `catch_discover_tests`
+  call. Tags mark groups that cut across tests (`[kilburn]`, `[slow]`), not
+  modules.
 - Warnings: `-Wall -Wextra -Wpedantic -Wconversion`, applied through an
   INTERFACE target so they don't reach third-party code.
 - Sanitizers: ASan + UBSan, behind the `BABY48_SANITIZE` option (default ON).

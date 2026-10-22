@@ -62,10 +62,10 @@ second header-only library.
   name for the same type, not a new type.
 - `src/CMakeLists.txt`: `add_library(baby48_memory INTERFACE)` and
   `target_include_directories(baby48_memory INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})`,
-  the same pattern as `baby48_isa`. Link `baby48_tests` to it.
+  the same pattern as `baby48_isa`. Link the tests to it.
 
 **Verify:**
-- Tests, tagged `[memory]` and `[isa]`: `isa::lineCount == 32`,
+- Tests: `isa::lineCount == 32`,
   `memory::MemoryImage{}.size() == memory::storeSize`, and a
   default-constructed image is all zeros.
 - `memory.hpp` compiles when it is the only file included.
@@ -96,21 +96,31 @@ second header-only library.
     `PUBLIC`. One used only in its `.cpp` files is `PRIVATE`.
 - Pitfall: because `baby48_options` is `PRIVATE` here, its sanitizer **link**
   flags do not reach executables through `baby48_machine`. Every executable
-  must link `baby48_options` itself, as `hello` and `baby48_tests` already do.
+  must link `baby48_options` itself, as `hello` and the test executables
+  already do.
   Otherwise linking fails with undefined `__asan_*` symbols.
-- Split the tests. `git mv tests/tests.cpp tests/isa_tests.cpp` keeps the file's
-  history. Add `tests/machine_tests.cpp`, list both files in
-  `add_executable(baby48_tests ...)`, and link `baby48_machine`.
-- Tag test cases by module: `TEST_CASE("...", "[isa]")`,
-  `TEST_CASE("...", "[machine]")`.
+- Split the tests into one executable per module. `git mv tests/tests.cpp
+  tests/isa_tests.cpp` keeps the file's history. Add `tests/memory_tests.cpp`
+  and `tests/machine_tests.cpp`, with executables `baby48_isa_tests`,
+  `baby48_memory_tests` and `baby48_machine_tests`. Each links Catch2,
+  `baby48_options`, and only the module it tests.
+- `catch_discover_tests` takes a single target. Call it once per test
+  executable. A second target passed to the same call is silently ignored, and
+  its tests never reach CTest.
+- With one executable per module, tags are not needed to select a module. Keep
+  tags for groups that cut across tests, such as `[kilburn]` and `[slow]`.
+- Every module shares the `src/` include root, so a test executable can still
+  see headers of modules it does not link. Link lists document dependencies but
+  do not enforce them.
 - Start `machine.hpp` with just the namespace `baby48::machine`. A library with
   an almost empty source file builds fine.
 
 **Verify:**
 - `cmake --build build -v` shows `ar` creating `libbaby48_machine.a`, and the
-  link line for `baby48_tests` includes it.
+  link line for `baby48_machine_tests` includes it, along with the sanitizer
+  flags.
 - All existing tests still pass.
-- `./build/tests/baby48_tests "[isa]"` runs only the `isa` tests.
+- `ctest --test-dir build` lists the tests from all three executables.
 
 ## 4. `Machine`: state, construction, accessors
 **Objective:** a class that protects its invariants, `explicit` constructors,
@@ -121,10 +131,10 @@ default member initializers, and `const` accessors.
   - `explicit Machine(const memory::MemoryImage& image);` copies the image into
     the store. Registers start at zero.
   - `StepResult step();`
-  - `const` accessors: `accumulator()`, `ci()` (both `std::uint32_t`),
+  - `const` accessors: `accumulator()`, `controlInstruction()` (both `std::uint32_t`),
     `store()` (returns `const memory::MemoryImage&`), `status()` (the current
     `StepResult`), `instructionCount()` (`std::uint64_t`).
-  - Private members: `store_`, `accumulator_`, `ci_`, `status_`,
+  - Private members: `store_`, `accumulator_`, `controlInstruction_`, `status_`,
     `instructionCount_`.
 - `static_assert(memory::storeSize == isa::lineCount);` in `machine.hpp`. This
   is where the two modules meet. The machine indexes the store with line numbers
@@ -134,7 +144,7 @@ default member initializers, and `const` accessors.
 - Concepts:
   - `class` rather than `struct`: the state is private, so it can only change
     through `step()`. Nothing outside the class can create an impossible state.
-  - Default member initializers (`std::uint32_t ci_ = 0;`) keep the reset
+  - Default member initializers (`std::uint32_t controlInstruction_ = 0;`) keep the reset
     values next to the declarations. The constructor's member initializer list
     (`: store_(image)`) handles the one member that needs an argument.
   - `explicit` prevents an accidental implicit conversion from `MemoryImage` to
@@ -146,14 +156,19 @@ default member initializers, and `const` accessors.
     one-line accessors can live in the header. `step()` belongs in
     `machine.cpp`.
 - Until step 5, `step()` can simply return `status_`.
-- Test helpers in `machine_tests.cpp`:
-  - an image builder taking `{line, word}` pairs, so a test program reads as a
-    short list such as `{{1, encode(LDN, 20)}, {2, encode(STOP, 0)}, {20, 5}}`;
-  - a helper that writes signed data:
+- Test helpers in `machine_tests.cpp`, inside an unnamed namespace (internal
+  to the file; `namespace detail` is the header convention):
+  - `imageBuilder`, taking an initializer list of `{line, word}` pairs, so a test
+    program reads as a short list such as
+    `{{1, encode(LDN, 20)}, {2, encode(STOP, 0)}, {20, 5}}`. It stores with
+    `.at()`, so a mistyped line number fails the test instead of causing
+    undefined behaviour;
+  - `toTwosComplement`, which writes signed data:
     `static_cast<std::uint32_t>(std::int32_t{-5})` is well-defined and gives
     the two's complement bit pattern;
-  - a run helper that calls `step()` until it returns something other than
-    `Ok`, with a step limit so a bug cannot hang the test run.
+  - `runHelper`, which calls `step()` until it returns something other than
+    `Ok`, with a step limit so a bug cannot hang the test run. It returns the
+    final `StepResult`, so a test can `REQUIRE` a halt before checking state.
 
 **Verify:** a new `Machine` has A = 0, CI = 0, instruction count 0, status
 `Ok`, and a store equal to the image.
@@ -164,10 +179,10 @@ no undefined behaviour.
 
 - Order inside `step()`:
   1. If `status_` is not `Ok`, return it.
-  2. Increment `ci_`.
+  2. Increment `controlInstruction_`.
   3. If CI bits 13-15 are nonzero (reuse `isa::functionShift` and
      `isa::functionMask`), set `status_` to `Fault` and return.
-  4. Fetch `store_[ci_ & isa::lineMask]` and `isa::decode` it.
+  4. Fetch `store_[controlInstruction_ & isa::lineMask]` and `isa::decode` it.
   5. Increment the instruction count.
   6. Execute: a `switch` on the opcode with all seven cases and no `default`,
      so `-Wswitch` flags any missing opcode. STOP sets `status_` to `Halted`.
@@ -194,10 +209,10 @@ no undefined behaviour.
 ## 6. Control flow: JMP, JRP, CMP
 **Objective:** indirect and relative jumps, and the CI pre-increment.
 
-- JMP: `ci_ = store_[s]`. The stored value is the target minus 1, because the
+- JMP: `controlInstruction_ = store_[s]`. The stored value is the target minus 1, because the
   next step increments CI before fetching.
-- JRP: `ci_ += store_[s]`, wrapping. A negative stored value jumps backwards.
-- CMP: if A is negative, increment `ci_` to skip the next instruction.
+- JRP: `controlInstruction_ += store_[s]`, wrapping. A negative stored value jumps backwards.
+- CMP: if A is negative, increment `controlInstruction_` to skip the next instruction.
   "Negative" means bit 31 is set: `static_cast<std::int32_t>(a) < 0`
   (well-defined since C++20) or `(a >> 31) != 0`.
 - Testing technique: put STOP on every possible path. The CI value after the
@@ -262,9 +277,11 @@ assembler exists.
 
 - `GENERATE(table<...>({...}))` from `<catch2/generators/catch_generators.hpp>`
   runs one test case per row and reports the row on failure.
-- Tag these tests `[kilburn]`. The 2^18 case runs 2.2 million instructions. If
-  it is slow under the sanitizers, tag it `[slow]`, and run
-  `baby48_tests "~[slow]"` to skip it during quick iterations.
+- Alternatively, write one test case per value. Each then appears separately
+  in CTest and in the editor's test list.
+- Tag these tests `[kilburn]`. The 2^18 case runs 2.2 million instructions, in
+  about 0.2 s under the sanitizers. A `[slow]` tag lets
+  `baby48_machine_tests "~[slow]"` skip it if it ever becomes slow.
 - The counts for 3141 and 4537 and the 2^18 count come from simulating the spec
   in this document, not from historical sources. The 989 count is independently
   cross-checked.
@@ -292,5 +309,6 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
-Expected: a clean build with no warnings, all `[isa]`, `[memory]`, `[machine]`
-and `[kilburn]` tests passing, and no sanitizer reports.
+Expected: a clean build with no warnings, every test in the three test
+executables passing (including the four `[kilburn]` cases), and no sanitizer
+reports.
