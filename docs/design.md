@@ -37,8 +37,9 @@ Dependencies point one way: `isa`, `memory` <- `machine`, `assembler`,
   `memory`: CI and operands select store lines by line number, so the faithful
   machine requires `memory::storeSize == isa::lineCount`, checked at compile
   time.
-- `assembler`: source text -> `std::expected<MemoryImage, AsmError>`. Knows
-  nothing about Machine.
+- `assembler`: source text -> `std::expected<MemoryImage, AsmError>`, where
+  `AsmError` is a source line number plus an error kind. Depends on `isa` and
+  `memory`; knows nothing about Machine.
 - `format`: pure functions, machine state -> string. Never prints.
 - `cli`: the only module that touches files, arguments, or stdout. Owns the run
   loop: until halted, until a breakpoint (check CI before each step), or until an
@@ -90,16 +91,39 @@ Dependencies point one way: `isa`, `memory` <- `machine`, `assembler`,
 
 ## Assembler syntax (v1)
 
-- One statement per line: `<line>: <MNEMONIC> [operand]`, e.g. `1: LDN 18`
-- Data: `<line>: NUM <value>` (signed 32-bit)
-- `CMP` / `STOP` accept and ignore an operand (historical listings write `CMP 0`)
+- One statement per line: `<line>: <MNEMONIC> [operand]`, e.g. `1: LDN 18`.
+  Spaces and tabs may surround each part. Lines may end in `\n` or `\r\n`.
+- Comments start with `;` and run to the end of the line, either on their own
+  line or after a statement. Blank lines and comment-only lines are ignored.
+- Line numbers and operands are decimal, 0-31. Leading zeros are allowed.
+- Data: `<line>: NUM <value>`. The value is either:
+  - decimal, signed, -2147483648 to 2147483647, with an optional leading `-`;
+  - hexadecimal with a `0x` or `0X` prefix, `0x0` to `0xFFFFFFFF`, stored as
+    the bit pattern. No sign is allowed on hexadecimal values.
+
+  A leading `+` is not accepted in either form.
+- Store lines not mentioned in the source are 0.
+- `CMP` / `STOP` accept and ignore an operand (historical listings write
+  `CMP 0`). If present, it must still be a valid operand (0-31).
 - `STOP` opcode defined as four letter version for easier eyeballing of program halt location
 - `STP` accepted as historical spelling of STOP
-- Opcode matching is case-insensitive
-- Errors, each reported with its source line number: unknown mnemonic; missing
-  or extra operand; operand or line number outside 0-31; duplicate line
-  numbers; NUM value outside 32-bit range
-- OPEN: comment syntax. Labels are deferred to v1.1 (they need a second pass).
+- Opcode matching is case-insensitive, including `NUM`.
+- Errors: `AsmError` holds the **source** line number (1-based, counting
+  every line of the text, including blank and comment lines) and an error kind:
+  - malformed line (no `:`, a line field that is not a number, or nothing
+    after the `:`);
+  - line number outside 0-31;
+  - duplicate line number;
+  - unknown mnemonic;
+  - missing operand;
+  - extra operand;
+  - operand not a number;
+  - operand outside 0-31;
+  - NUM value not a number;
+  - NUM value outside the 32-bit range.
+
+  Assembly stops at the first error. Error messages for users belong to `cli`.
+- Labels are deferred to v1.1 (they need a second pass).
 
 ## Memory dump format
 
@@ -116,6 +140,10 @@ and CI rows in the same style. Example:
 - `encode(LDN, 18) == 16402`; encode/decode round-trips.
 - Machine: each instruction in isolation using hand-encoded memory images.
   JMP, JRP and CMP need the most coverage (indirection, CI pre-increment).
+- Assembler: at least one test per error kind, each checking both the source
+  line and the kind; boundary values for every numeric field.
+- End to end: the Kilburn listing below assembles to exactly the hand-encoded
+  image, and running it reproduces the results that follow.
 - Kilburn's highest-factor program (Kilburn/Tootill 1996 reconstruction of the
   21 June 1948 version), listed below. The answer ends up in line 20 as
   (answer - 1), because b is decremented before the remainder test.
@@ -165,7 +193,7 @@ line 20 = a - 1, line 22 = -(a - 1).
 25: NUM 16
 ```
 
-(The `;` comments are illustrative; comment syntax is still open.)
+This listing, comments included, is valid assembler input.
 
 ## Toolchain
 
