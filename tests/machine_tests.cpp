@@ -42,8 +42,42 @@ namespace{
         }
         return result;
     }
+
+    memory::MemoryImage kilburnBuilder(std::int32_t input){
+
+        memory::MemoryImage image = imageBuilder({
+            {1, isa::encode(LDN, 18)},      // A = 0 (clear)
+            {2, isa::encode(LDN, 19)},      // A = input
+            {3, isa::encode(SUB, 20)},      //
+            {4, isa::encode(CMP, 0)},       //
+            {5, isa::encode(JRP, 21)},      // back to line 3
+            {6, isa::encode(SUB, 22)},      // A += b -> remainder r
+            {7, isa::encode(STO, 24)},      //
+            {8, isa::encode(LDN, 22)},      // A = b
+            {9, isa::encode(SUB, 23)},      // A = b - 1
+            {10, isa::encode(STO, 20)},     // b = b - 1
+            {11, isa::encode(LDN, 20)},     //
+            {12, isa::encode(STO, 22)},     // store -b
+            {13, isa::encode(LDN, 24)},     // A = -r
+            {14, isa::encode(CMP, 0)},      //
+            {15, isa::encode(JMP, 25)},     // r == 0 -> line 17
+            {16, isa::encode(JMP, 18)},     // r > 0 -> line 1
+            {17, isa::encode(STOP, 0)},
+            {18, 0},
+            {19, toTwosComplement(-input)},
+            {20, input - 1},
+            {21, toTwosComplement(-3)},
+            {22, toTwosComplement(-(input - 1))},
+            {23, 1},
+            {24, 0},
+            {25, 16}
+        });
+
+        return image;
+    }
 }
 
+// Basic Tests ----------------------------
 
 TEST_CASE("Machine can be constructed"){
     memory::MemoryImage image{};
@@ -98,6 +132,7 @@ TEST_CASE("Machine executes line 1 first and correctly STOPs"){
     CHECK(m.store() == image);
 }
 
+// Arithmetic / Accumulator Tests ----------------------------
 TEST_CASE("LDN 0x80000000 gives accumulator 0x80000000"){
     const std::uint32_t HEX_8E8 = 0x80000000;
     memory::MemoryImage image = imageBuilder({
@@ -246,6 +281,7 @@ TEST_CASE("Opcode 5 is read as SUB"){
 
 }
 
+// JMP / JRP / CMP Tests ----------------------------
 TEST_CASE("JMP to line 5 executes line 6, not line 5"){
 
     memory::MemoryImage image = imageBuilder({
@@ -377,4 +413,118 @@ TEST_CASE("CMP A = 0x80000000 (skip)"){
     CHECK(m.controlInstruction() == 4);
 }
 
+// Status Tests ----------------------------
 
+TEST_CASE("Machine halts properly on step() when m.status() == Halted"){
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(LDN, 5)},
+        {2, isa::encode(STOP, 0)},
+        {5, toTwosComplement(-42)}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+
+    CHECK(m.controlInstruction() == 2);
+    CHECK(m.instructionCount() == 2);
+    CHECK(m.accumulator() == 42);
+
+    CHECK(m.step() == machine::StepResult::Halted);
+
+    CHECK(m.controlInstruction() == 2);
+    CHECK(m.instructionCount() == 2);
+    CHECK(m.accumulator() == 42);
+}
+
+TEST_CASE("Fault on bit 13 set in CI"){
+    const std::uint32_t BIT_13 = 0x2000;
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(JMP, 20)},
+        {2, isa::encode(STOP, 0)},
+        {20, BIT_13}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Fault);
+    CHECK(m.instructionCount() == 1);
+    CHECK(m.controlInstruction() == BIT_13 + 1);
+    CHECK(m.step() == machine::StepResult::Fault);
+    CHECK(m.instructionCount() == 1);
+    CHECK(m.controlInstruction() == BIT_13 + 1);
+}
+
+TEST_CASE("Fault on jumping back through instruction 0"){
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(JRP, 20)},
+        {2, isa::encode(STOP, 0)},
+        {20, toTwosComplement(-5)}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Fault);
+    CHECK(m.controlInstruction() == 0xFFFFFFFD);
+    CHECK(m.instructionCount() == 1);
+}
+
+TEST_CASE("CI wraps through line 31 to line 0"){
+    memory::MemoryImage image = imageBuilder({
+        {0, isa::encode(STOP, 0)},
+        {1, isa::encode(JMP, 20)},
+        {2, isa::encode(STOP, 0)},
+        {20, 30},
+        {21, 42},
+        {31, isa::encode(LDN, 21)}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.accumulator() == toTwosComplement(-42));
+    CHECK(m.controlInstruction() == 32);
+}
+
+TEST_CASE("Kilburn Program (input = 989)", "[kilburn]"){
+    memory::MemoryImage kilburn = kilburnBuilder(989);
+
+    machine::Machine m(kilburn);
+
+    REQUIRE(runHelper(m, 3'000'000) == machine::StepResult::Halted);
+    CHECK(m.store().at(20) == 42);
+    CHECK(m.instructionCount() == 21'387);
+    CHECK(m.controlInstruction() == 17);
+}
+
+TEST_CASE("Kilburn Program (input = 3141)", "[kilburn]"){
+    memory::MemoryImage kilburn = kilburnBuilder(3141);
+
+    machine::Machine m(kilburn);
+
+    REQUIRE(runHelper(m, 3'000'000) == machine::StepResult::Halted);
+    CHECK(m.store().at(20) == 1046);
+    CHECK(m.instructionCount() == 37'174);
+    CHECK(m.controlInstruction() == 17);
+}
+TEST_CASE("Kilburn Program (input = 4537)", "[kilburn]"){
+    memory::MemoryImage kilburn = kilburnBuilder(4537);
+
+    machine::Machine m(kilburn);
+
+    REQUIRE(runHelper(m, 3'000'000) == machine::StepResult::Halted);
+    CHECK(m.store().at(20) == 348);
+    CHECK(m.instructionCount() == 88'333);
+    CHECK(m.controlInstruction() == 17);
+}
+
+TEST_CASE("Kilburn Program (input = 262'144)", "[kilburn] [slow]"){
+    memory::MemoryImage kilburn = kilburnBuilder(262'144);
+
+    machine::Machine m(kilburn);
+
+    REQUIRE(runHelper(m, 3'000'000) == machine::StepResult::Halted);
+    CHECK(m.store().at(20) == 131'071);
+    CHECK(m.instructionCount() == 2'228'228);
+    CHECK(m.controlInstruction() == 17);
+}
