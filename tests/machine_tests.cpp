@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "machine/machine.hpp"
+#include "memory/memory.hpp"
 
 namespace machine = baby48::machine;
 namespace memory = baby48::memory;
@@ -43,7 +44,7 @@ namespace{
 }
 
 
-TEST_CASE("Machine can be constructed", "[machine]"){
+TEST_CASE("Machine can be constructed"){
     memory::MemoryImage image{};
     machine::Machine m(image);
 
@@ -54,7 +55,7 @@ TEST_CASE("Machine can be constructed", "[machine]"){
     CHECK(m.instructionCount() == 0);
 }
 
-TEST_CASE("Machine can be constructed with non-zero memory image", "[machine]"){
+TEST_CASE("Machine can be constructed with non-zero memory image"){
     memory::MemoryImage image = imageBuilder({
         {0, isa::encode(JMP, 0)},
         {1, isa::encode(JRP, 1)},
@@ -69,9 +70,179 @@ TEST_CASE("Machine can be constructed with non-zero memory image", "[machine]"){
     auto original = image;
     machine::Machine m(image);
 
+    image[0] = 0x12345678;
+
     CHECK(m.store() == original);
     CHECK(m.accumulator() == 0);
     CHECK(m.controlInstruction() == 0);
     CHECK(m.status() == machine::StepResult::Ok);
     CHECK(m.instructionCount() == 0);
 }
+
+TEST_CASE("Machine executes line 1 first and correctly STOPs"){
+    memory::MemoryImage image = imageBuilder({
+        {0, isa::encode(LDN, 5)},
+        {1, isa::encode(STOP, 0)},
+        {5, 42}
+    });
+
+    machine::Machine m(image);
+
+
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.instructionCount() == 1);
+    CHECK(m.accumulator() == 0);
+    CHECK(m.controlInstruction() == 1);
+    CHECK(m.store() == image);
+}
+
+TEST_CASE("LDN 0x80000000 gives accumulator 0x80000000"){
+    const std::uint32_t HEX_8E8 = 0x80000000;
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(LDN, 8)},
+        {2, isa::encode(STOP, 0)},
+        {8, HEX_8E8}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.accumulator() == HEX_8E8);
+}
+
+TEST_CASE("LDN 5 gives accumulator -5"){
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(LDN, 8)},
+        {2, isa::encode(STOP, 0)},
+        {8, 5}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.accumulator() == toTwosComplement(-5));
+}
+
+TEST_CASE("LDN 0 gives accumulator 0"){
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(LDN, 8)},
+        {2, isa::encode(LDN, 9)},
+        {3, isa::encode(STOP, 0)},
+        {8, 5},
+        {9, 0}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.accumulator() == 0);
+}
+
+TEST_CASE("LDN negative number gives positive"){
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(LDN, 8)},
+        {2, isa::encode(STOP, 0)},
+        {8, toTwosComplement(-42)}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.accumulator() == 42);
+}
+
+TEST_CASE("0 - 1 = 0xFFFFFFFF"){
+    const std::uint32_t ALL_F = 0xFFFFFFFF;
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(SUB, 10)},
+        {2, isa::encode(STOP, 0)},
+        {10, 1}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.accumulator() == ALL_F);
+}
+
+TEST_CASE(" 10 - 3 = 7"){
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(LDN, 8)},
+        {2, isa::encode(SUB, 9)},
+        {3, isa::encode(STOP, 0)},
+        {8, toTwosComplement(-10)},
+        {9, 3}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.accumulator() == 7);
+}
+
+TEST_CASE("STO only writes to the appropriate line"){
+    memory::MemoryImage image = imageBuilder({
+        {1, isa::encode(LDN, 5)},
+        {2, isa::encode(STO, 30)},
+        {3, isa::encode(STOP, 0)},
+        {5, toTwosComplement(-10)},
+        {6, 30}
+    });
+
+    machine::Machine m(image);
+
+    CHECK(m.store().at(30) == 0);
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    REQUIRE(m.accumulator() == 10);
+
+    for (std::size_t i = 0; i < memory::storeSize; i++){
+        switch (i){
+            case 1:
+            CHECK(m.store().at(i) == isa::encode(LDN, 5));
+            break;
+
+            case 2:
+            CHECK(m.store().at(i) == isa::encode(STO, 30));
+            break;
+
+            case 3:
+            CHECK(m.store().at(i) == isa::encode(STOP, 0));
+            break;
+
+            case 5:
+            CHECK(m.store().at(i) == toTwosComplement(-10));
+            break;
+
+            case 6:
+            CHECK(m.store().at(i) == 30);
+            break;
+
+            case 30:
+            CHECK(m.store().at(i) == 10);
+            break;
+
+            default:
+            CHECK(m.store().at(i) == 0);
+            break;
+        }
+    }
+}
+
+TEST_CASE("Opcode 5 is read as SUB"){
+
+    const std::uint32_t ALL_F = 0xFFFFFFFF;
+    memory::MemoryImage image = imageBuilder({
+        {1, (5u << 13) | 10},
+        {2, isa::encode(STOP, 0)},
+        {10, 1}
+    });
+
+    machine::Machine m(image);
+
+    REQUIRE(runHelper(m) == machine::StepResult::Halted);
+    CHECK(m.accumulator() == ALL_F);
+
+}
+
+

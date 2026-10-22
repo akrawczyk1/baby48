@@ -18,7 +18,6 @@ namespace baby48::machine{
     public:
 
         explicit Machine(const memory::MemoryImage& image);
-        ~Machine() = default;
 
         StepResult step();
 
